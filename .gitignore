@@ -1,0 +1,9 @@
+# Python virtual environment
+/.venv/
+
+# Python build / cache artifacts
+/build
+/src/audio-find.egg-info/
+/src/audio-find/__pycache__/
+
+# Output and generated files
