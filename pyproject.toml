@@ -1,0 +1,23 @@
+[project]
+name = "audio-find-cli"
+version = "0.1.0"
+description = "Find similar WAV files via segmented log-mel + chroma embeddings."
+readme = "README.md"
+authors = [{ name = "Sven Littorin" }]
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "scipy",
+  "librosa",
+  "soundfile",
+  "tqdm",
+  "typer",
+]
+license = { text = "MIT" }
+
+[project.scripts]
+audio-find-cli = "audio_find_cli.cli:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

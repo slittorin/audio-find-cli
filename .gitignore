@@ -2,8 +2,12 @@
 /.venv/
 
 # Python build / cache artifacts
-/build
-/src/audio-find.egg-info/
-/src/audio-find/__pycache__/
+/build/
+/dist/
+/src/audio_find_cli.egg-info/
+/src/audio_find_cli/__pycache__/
 
-# Output and generated files
+# Input and generated files
+/paths.txt
+/audio/
+/index/
