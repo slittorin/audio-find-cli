@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -16,6 +17,14 @@ import numpy as np
 import librosa
 import typer
 import click
+import sounddevice as sd
+import soundfile as sf
+from prompt_toolkit.application import Application
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import HSplit, Layout, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.styles import Style
 
 
 # Defaults tuned for balance of speed/quality on CPU
@@ -86,7 +95,9 @@ def extract_segments(
         )
         logmel = librosa.power_to_db(mel + 1e-9)
         mel_stat = np.concatenate([logmel.mean(axis=1), logmel.std(axis=1)])
-        chroma = librosa.feature.chroma_stft(y=clip, sr=sr, n_chroma=n_chroma)
+        chroma = librosa.feature.chroma_stft(
+            y=clip, sr=sr, n_chroma=n_chroma, tuning=0.0
+        )
         chroma_stat = np.concatenate([chroma.mean(axis=1), chroma.std(axis=1)])
         feat = np.concatenate([mel_stat, chroma_stat])
         # L2 normalize per segment
@@ -98,7 +109,22 @@ def extract_segments(
 
 
 def extract_features(path: Path) -> Dict:
-    audio, sr = librosa.load(path, sr=SAMPLE_RATE, mono=True)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="PySoundFile failed. Trying audioread instead.",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="librosa.core.audio.__audioread_load",
+            category=FutureWarning,
+        )
+        audio, sr = librosa.load(path, sr=SAMPLE_RATE, mono=True)
+    if audio.size == 0:
+        raise ValueError(f"Empty audio file: {path}")
+    if not np.any(audio):
+        print(f"Warning: silent audio detected in {path}", file=sys.stderr)
     segments = extract_segments(audio, sr)
     centroid = segments.mean(axis=0)
     centroid_norm = np.linalg.norm(centroid)
@@ -144,13 +170,22 @@ app = typer.Typer(
 )
 
 
+def _strip_usage(help_text: str) -> str:
+    lines = help_text.splitlines()
+    if lines and lines[0].startswith("Usage:"):
+        lines = lines[1:]
+        if lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines).rstrip()
+
+
 def _print_help(ctx: click.Context) -> None:
     command = ctx.command
     if isinstance(command, click.Group):
         parts = [command.get_help(ctx).rstrip()]
         for name, sub in sorted(command.commands.items()):
-            sub_ctx = click.Context(sub, parent=ctx)
-            parts.append(sub.get_help(sub_ctx).rstrip())
+            sub_ctx = sub.make_context(name, [], parent=ctx, resilient_parsing=True)
+            parts.append(_strip_usage(sub.get_help(sub_ctx)))
         typer.echo("\n\n".join(parts))
     else:
         typer.echo(command.get_help(ctx))
@@ -202,20 +237,14 @@ def update(
     t0 = time.time()
     from . import update as update_mod
 
-    manifest = update_mod.update_index(paths, index_dir)
+    manifest = update_mod.update_index(paths, index_dir, progress_label="Indexing")
     print(f"Indexed {len(manifest)} files in {(time.time() - t0):.1f}s")
 
 
 @app.command()
 def query(
-    paths: Path = typer.Option(
-        Path("paths.txt"),
-        "--paths",
-        help="Text file with directories to scan (one per line).",
-    ),
-    query: Path = typer.Option(
+    query_path: Path = typer.Argument(
         ...,
-        "--query",
         help="Query WAV file.",
     ),
     index_dir: Path = typer.Option(
@@ -233,6 +262,11 @@ def query(
         "--filter-k",
         help="Candidates to refine after centroid filter (0 = all).",
     ),
+    browse: bool = typer.Option(
+        False,
+        "--browse",
+        help="Interactively browse results with arrow keys.",
+    ),
     _show_help: bool = typer.Option(
         False,
         "--help",
@@ -244,14 +278,17 @@ def query(
 ) -> None:
     t0 = time.time()
     from . import query as query_mod
-    from . import update as update_mod
 
-    manifest = update_mod.update_index(paths, index_dir)
+    manifest_path = index_dir / "manifest.json"
+    if not manifest_path.exists():
+        print("Index manifest not found. Run 'update' to build it first.")
+        sys.exit(1)
+    manifest = load_manifest(manifest_path)
     if not manifest:
         print("Index is empty; add WAVs to the directories and rerun.")
         sys.exit(1)
     results = query_mod.query(
-        query_path=query,
+        query_path=query_path,
         manifest=manifest,
         index_dir=index_dir,
         top_k=top_k,
@@ -260,6 +297,144 @@ def query(
     print(f"Top {len(results)} similar files:")
     for rank, (entry, score) in enumerate(results, 1):
         print(f"{rank:2d}. {entry.path}  score={score:.3f}")
+    if browse and results:
+        _browse_results(results)
+
+
+def _browse_results(results: List[Tuple["ManifestEntry", float]]) -> None:
+    idx = 0
+    playing = False
+    offset = 0
+
+    def stop_playback() -> None:
+        nonlocal playing
+        sd.stop()
+        playing = False
+
+    def is_playing() -> bool:
+        try:
+            stream = sd.get_stream()
+        except Exception:  # noqa: BLE001
+            return playing
+        return bool(getattr(stream, "active", False))
+
+    def _ensure_visible(height: int) -> None:
+        nonlocal offset
+        if idx < offset:
+            offset = idx
+        elif idx >= offset + height:
+            offset = max(0, idx - height + 1)
+
+    def _render() -> FormattedText:
+        size = app.output.get_size()
+        list_height = max(1, size.rows - 3)
+        _ensure_visible(list_height)
+        lines: FormattedText = []
+        header = (
+            "Arrows: move | Space: play/stop | Q/Esc: quit"
+            f"  [{idx + 1}/{len(results)}]"
+        )
+        lines.append(("", header))
+        lines.append(("", "\n"))
+        end = min(len(results), offset + list_height)
+        for i in range(offset, end):
+            entry, score = results[i]
+            prefix = "> " if i == idx else "  "
+            line = f"{prefix}{i + 1:3d}. {entry.path}  score={score:.3f}"
+            if i == idx:
+                lines.append(("class:selected", line))
+            else:
+                lines.append(("", line))
+            if i < end - 1:
+                lines.append(("", "\n"))
+        return lines
+
+    def _play_selected() -> None:
+        nonlocal playing
+        entry, _ = results[idx]
+        stop_playback()
+        try:
+            data, sr = sf.read(entry.path, dtype="float32", always_2d=False)
+            sd.play(data, sr, blocking=False)
+            playing = True
+        except Exception as exc:  # noqa: BLE001
+            playing = False
+            status_text.text = FormattedText(
+                [("class:error", f"Failed to play: {entry.path} ({exc})")]
+            )
+            app.invalidate()
+
+    kb = KeyBindings()
+
+    @kb.add("up")
+    @kb.add("left")
+    def _on_up(event: object) -> None:
+        nonlocal idx
+        if idx > 0:
+            idx -= 1
+            stop_playback()
+            app.invalidate()
+
+    @kb.add("down")
+    @kb.add("right")
+    def _on_down(event: object) -> None:
+        nonlocal idx
+        if idx < len(results) - 1:
+            idx += 1
+            stop_playback()
+            app.invalidate()
+
+    @kb.add("pageup")
+    def _on_page_up(event: object) -> None:
+        nonlocal idx
+        size = app.output.get_size()
+        page = max(1, size.rows - 3)
+        idx = max(0, idx - page)
+        stop_playback()
+        app.invalidate()
+
+    @kb.add("pagedown")
+    def _on_page_down(event: object) -> None:
+        nonlocal idx
+        size = app.output.get_size()
+        page = max(1, size.rows - 3)
+        idx = min(len(results) - 1, idx + page)
+        stop_playback()
+        app.invalidate()
+
+    @kb.add(" ")
+    def _on_space(event: object) -> None:
+        if is_playing():
+            stop_playback()
+        else:
+            _play_selected()
+        app.invalidate()
+
+    @kb.add("q")
+    @kb.add("escape")
+    def _on_quit(event: object) -> None:
+        stop_playback()
+        event.app.exit()
+
+    list_text = FormattedTextControl(text=_render, focusable=False)
+    list_window = Window(content=list_text, wrap_lines=False)
+    status_text = FormattedTextControl(text=FormattedText([]), focusable=False)
+    status_window = Window(content=status_text, height=1)
+
+    style = Style.from_dict(
+        {
+            "selected": "reverse",
+            "error": "fg:#ff5f5f",
+        }
+    )
+
+    app = Application(
+        layout=Layout(HSplit([list_window, status_window])),
+        key_bindings=kb,
+        full_screen=True,
+        style=style,
+    )
+    app.run()
 
 
 def run() -> None:

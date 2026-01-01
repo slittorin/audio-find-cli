@@ -12,6 +12,8 @@ dependencies = [
   "soundfile",
   "tqdm",
   "typer",
+  "sounddevice",
+  "prompt-toolkit",
 ]
 license = { text = "MIT" }
 

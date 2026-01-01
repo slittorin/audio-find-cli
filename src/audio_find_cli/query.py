@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+from tqdm import tqdm
 
 from .cli import ManifestEntry, cosine_sim, extract_features
 
@@ -48,11 +49,20 @@ def query(
     index_dir: Path,
     top_k: int,
     filter_k: int,
+    show_progress: bool = True,
 ) -> List[Tuple[ManifestEntry, float]]:
+    if show_progress:
+        print("Loading query and scanning index...")
     q_feats = extract_features(query_path)
     # coarse filter by centroid
     centroids = []
-    for entry in manifest.values():
+    entries = list(manifest.values())
+    iterator = (
+        tqdm(entries, desc="Searching index", unit="file")
+        if show_progress
+        else entries
+    )
+    for entry in iterator:
         feat = load_features(index_dir, entry)
         centroids.append((entry, cosine_sim(q_feats["centroid"], feat["centroid"])))
     centroids.sort(key=lambda x: x[1], reverse=True)

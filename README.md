@@ -1,40 +1,98 @@
 # Audio Similarity Finder
 
-Python 3.11 CLI to find WAV files that sound similar to a query clip. It:
+Python CLI to find WAV files that sound similar to a query clip. It:
 - Reads search roots from a text file (one directory per line)
 - Builds/updates an index under `./index/` (manifest + per-file feature NPZ)
 - Extracts segmented log-mel + chroma embeddings for key/length tolerance
 - Searches with cosine similarity (centroid prefilter + window-level refine)
 
-## Install
-```bash
+## Versions:
+0.1.0 - First version from ChatGPT.\
+0.2.0 - Vibe coding to allow browsing through sounds and play them, informative text and progress-bars and management of corrupt or empyt wav-files.
+
+## Install (dev)
+
+### Python
+Install Python 3.11
+
+### Dev
+- Install VS Code
+- Install Git for Windows: https://gitforwindows.org/
+- Install GitHub CLI: https://cli.github.com/
+
+### Extensions
+Add the following extensions in VS Code:
+- Python + Pylance (Microsoft)
+- ESLint (for Node/TS)
+- Prettier (formatting)
+- GitHub Pull Requests and Issues
+
+### Setup Git
+Inside project-folder:
+```
+git config --global user.name "slittorin"
+git config --global user.email "sven.anders@littorin.nu"
+git init
+git add .
+git commit -m "Initial commit"
+gh auth login
+gh repo create audio-find-cli --source=. --private --push
+```
+
+### Setup PowerShell
+Run the following PowerShell-command: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Unrestricted`
+
+### Setup the environment
+In PowerShell run:
+```
 python -m venv .venv
-.venv\Scripts\activate
+.\.venv\Scripts\activate
+pip install torchcodec
+```
+
+### Build
+In PowerShell run:
+```
 pip install -e .
 ```
 
-## Prepare paths file
-`paths.txt` example:
-```
-C:\samples\drums
-Z:\libraries\pads
-# comment lines are ignored
-```
+## Usage
+Usage: audio-find-cli [OPTIONS] COMMAND [ARGS]
 
-## Update the index
-```bash
-python -m audio_find_cli.cli update --paths paths.txt --index-dir index
-# or after install: audio-find update --paths paths.txt --index-dir index
-```
+Commands:
+update              Create/update index based on wav-files from path-file.
+query               Perform query on index based on wav-file, list top-k. Possibility also to browse through the result and play sounds.
 
-## Query similar files
-```bash
-python -m audio_find_cli.cli query --paths paths.txt --query C:\audio\snippet.wav --top-k 10 --filter-k 50
-# or: audio-find query --paths paths.txt --query C:\audio\snippet.wav --top-k 10 --filter-k 50
+### Update
+Usage: audio-find-cli update [OPTIONS]
+
+Options:
+--paths              PATH     Text file with directories to scan (one per line). [default: paths.txt]
+                              Can include commented lines '#'.
+--index-dir          PATH     Index directory (manifest + features). [default: index]
+--help       -h               Show help and exit.  
+
+### Query
+Usage: audio-find-cli query [OPTIONS] QUERY_PATH
+
+Arguments:
+query_path           PATH     Query WAV file. [required] 
+
+Options:
+--index-dir          PATH     Index directory (manifest + features). [default: index]
+--top-k              INTEGER  Number of top results to show. [default: 10]
+--filter-k           INTEGER  Candidates to refine after centroid filter (0 = all). [default: 50]
+                              Controls how many top centroid candidates are refined with window-level matching. Lower values are faster but may miss good matches; higher values are slower but more thorough. Use `0` to refine all indexed files (best recall, slowest), a small number like `20-50` for quick interactive searches, and larger values when your library is noisy or you want stronger recall.
+--browse                      Interactive way to listen to results: use arrow keys to move and spacebar to play/stop the current WAV.
+--help       -h               Show help and exit.  
+
+## Example query of similar files
 ```
-- `--filter-k` controls how many top centroid candidates are refined with window-level matching. Lower values are faster but may miss good matches; higher values are slower but more thorough. Use `0` to refine all indexed files (best recall, slowest), a small number like `20-50` for quick interactive searches, and larger values when your library is noisy or you want stronger recall.
+audio_find_cli query --top-k 10 --filter-k 70 C:\audio\snippet.wav 
+```
 
 ## Notes
+- Unreadable wav-files will be appended in to `unreadable.txt` in `index` directory.
 - Index updates in-place: new/changed files are re-extracted; missing files are dropped.
 - Features are segmented (default 3s window, 1.5s hop) with log-mel + chroma stats and L2 normalization.
 - Defaults balance speed/quality on CPU; adjust constants in `src/audio_find_cli/cli.py` for larger windows or more mels.

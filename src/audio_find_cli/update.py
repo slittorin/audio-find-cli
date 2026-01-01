@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 from typing import Dict
 
 import numpy as np
@@ -18,26 +19,35 @@ from .cli import (
 )
 
 
-def update_index(paths_file: Path, index_dir: Path) -> Dict[str, ManifestEntry]:
+def update_index(
+    paths_file: Path,
+    index_dir: Path,
+    progress_label: str = "Indexing",
+) -> Dict[str, ManifestEntry]:
     index_dir.mkdir(parents=True, exist_ok=True)
     features_dir = index_dir / "features"
     features_dir.mkdir(exist_ok=True)
     manifest_path = index_dir / "manifest.json"
     manifest = load_manifest(manifest_path)
+    unreadable_path = index_dir / "unreadable.txt"
 
+    print("Scanning paths file and collecting WAV files...")
     target_dirs = load_paths_file(paths_file)
-    wav_files = list(iter_wavs(target_dirs))
-    wav_set = {str(p.resolve()) for p in wav_files}
+    wav_files = []
+    for d in tqdm(target_dirs, desc="Scanning directories", unit="dir"):
+        wav_files.extend(iter_wavs([d]))
+    print("Reconciling manifest with discovered files...")
+    wav_set = {str(p.resolve()) for p in tqdm(wav_files, desc="Resolving paths", unit="file")}
 
     # Remove stale entries
     stale_keys = [k for k, v in manifest.items() if v.path not in wav_set]
-    for k in stale_keys:
+    for k in tqdm(stale_keys, desc="Removing stale entries", unit="file"):
         mf = index_dir / manifest[k].feature_file
         if mf.exists():
             mf.unlink(missing_ok=True)
         manifest.pop(k, None)
 
-    for path in tqdm(wav_files, desc="Indexing"):
+    for path in tqdm(wav_files, desc=progress_label):
         real_path = path.resolve()
         sig = file_sig(real_path)
         key = str(real_path)
@@ -51,7 +61,13 @@ def update_index(paths_file: Path, index_dir: Path) -> Dict[str, ManifestEntry]:
         if not needs_update:
             continue
 
-        feats = extract_features(real_path)
+        try:
+            feats = extract_features(real_path)
+        except Exception as exc:  # noqa: BLE001
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            with unreadable_path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{timestamp}\t{real_path}\t{exc}\n")
+            continue
         file_id = hash_path(real_path)
         feat_file = features_dir / f"{file_id}.npz"
         np.savez_compressed(
