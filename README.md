@@ -9,6 +9,7 @@ Python CLI to find WAV files that sound similar to a query clip. It:
 ## Versions:
 0.1.0 - First version from Chat--filter-GPT.\
 0.2.0 - Vibe coding to allow browsing through sounds and play them, informative text and progress-bars and management of corrupt or empyt wav-files.
+0.3.0 - Vibe coding to add option to exclude patterns when creating result.
 
 ## Install (dev)
 
@@ -90,6 +91,7 @@ Options:
 --filter-k           INTEGER  Candidates to refine after centroid filter (0 = all). [default: 50]
                               Controls how many top centroid candidates are refined with window-level matching. Lower values are faster but may miss good matches; higher values are slower but more thorough. Use `0` to refine all indexed files (best recall, slowest), a small number like `20-50` for quick interactive searches, and larger values when your library is noisy or you want stronger recall.
 --name-pattern       TEXT     Filter indexed paths by name (supports wildcards like * and ?). If no wildcard is provided, matches as a substring.
+--exclude-pattern    TEXT     Exclude indexed paths by name (supports wildcards like * and ?). If no wildcard is provided, matches as a substring.
 --browse                      Interactive way to listen to results: use arrow keys to move and spacebar to play/stop the current WAV.
 --help       -h               Show help and exit.  
 ```

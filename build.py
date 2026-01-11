@@ -61,9 +61,7 @@ def ensure_venv() -> Path:
         if path.exists():
             return path
 
-    raise SystemExit("Failed to locate python in .venv after creation. Please remove .venv and retry.")
-
-
+    raise SystemExit("Failed to locate python in .venv after creation. Please remove .ve 
 def pip_install(python: Path, *args: str) -> None:
     # Always use venv python, so we don't depend on "activate" in the parent shell.
     run([str(python), "-m", "pip", "install", *args])

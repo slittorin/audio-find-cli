@@ -1,6 +1,6 @@
 [project]
 name = "audio-find-cli"
-version = "0.1.0"
+version = "0.3.0"
 description = "Find similar WAV files via segmented log-mel + chroma embeddings."
 readme = "README.md"
 authors = [{ name = "Sven Littorin" }]

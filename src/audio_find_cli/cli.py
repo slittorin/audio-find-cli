@@ -270,6 +270,14 @@ def query(
             "If no wildcard is provided, matches as a substring."
         ),
     ),
+    name_exclude_pattern: str | None = typer.Option(
+        None,
+        "--exclude-pattern",
+        help=(
+            "Exclude indexed paths by name (supports wildcards like * and ?). "
+            "If no wildcard is provided, matches as a substring."
+        ),
+    ),
     browse: bool = typer.Option(
         False,
         "--browse",
@@ -302,6 +310,7 @@ def query(
         top_k=top_k,
         filter_k=filter_k,
         name_pattern=name_pattern,
+        name_exclude_pattern=name_exclude_pattern,
     )
     print(f"Top {len(results)} similar files:")
     for rank, (entry, score) in enumerate(results, 1):
