@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import fnmatch
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -49,6 +50,7 @@ def query(
     index_dir: Path,
     top_k: int,
     filter_k: int,
+    name_pattern: str | None = None,
     show_progress: bool = True,
 ) -> List[Tuple[ManifestEntry, float]]:
     if show_progress:
@@ -57,6 +59,15 @@ def query(
     # coarse filter by centroid
     centroids = []
     entries = list(manifest.values())
+    if name_pattern:
+        pattern = name_pattern
+        if not any(ch in pattern for ch in "*?[]"):
+            pattern = f"*{pattern}*"
+        entries = [
+            entry
+            for entry in entries
+            if fnmatch.fnmatch(str(entry.path), pattern)
+        ]
     iterator = (
         tqdm(entries, desc="Searching index", unit="file")
         if show_progress

@@ -262,6 +262,14 @@ def query(
         "--filter-k",
         help="Candidates to refine after centroid filter (0 = all).",
     ),
+    name_pattern: str | None = typer.Option(
+        None,
+        "--name-pattern",
+        help=(
+            "Filter indexed paths by name (supports wildcards like * and ?). "
+            "If no wildcard is provided, matches as a substring."
+        ),
+    ),
     browse: bool = typer.Option(
         False,
         "--browse",
@@ -293,6 +301,7 @@ def query(
         index_dir=index_dir,
         top_k=top_k,
         filter_k=filter_k,
+        name_pattern=name_pattern,
     )
     print(f"Top {len(results)} similar files:")
     for rank, (entry, score) in enumerate(results, 1):
